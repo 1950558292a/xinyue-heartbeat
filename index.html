@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>心悦量化 · 正在连接…</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: #0d1117; color: #e6edf3;
+    font: 14px/1.6 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    text-align: center; padding: 20px;
+  }
+  .box { max-width: 420px; }
+  .logo { font-size: 52px; margin-bottom: 12px; }
+  h1 { font-size: 20px; margin-bottom: 8px; }
+  .status { color: #8b98a9; font-size: 13px; min-height: 20px; margin-top: 10px; }
+  .spinner {
+    width: 30px; height: 30px; margin: 18px auto; border: 3px solid #232d3d;
+    border-top-color: #3d8bff; border-radius: 50%; animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .maint { color: #e6543e; font-size: 15px; font-weight: 700; }
+  .tip { color: #8b98a9; font-size: 12px; margin-top: 14px; }
+  a { color: #3d8bff; }
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="logo">◈</div>
+  <h1>心悦量化开发1.0</h1>
+  <div class="spinner" id="spin"></div>
+  <div class="status" id="status">正在连接服务器…</div>
+  <div class="tip">如果长时间无反应，请检查电脑端是否已启动服务，或稍后重试。</div>
+</div>
+<script>
+/* 固定跳转页：从 GitHub raw 读取服务器心跳（最新隧道地址） */
+var HEARTBEAT_URL = 'https://raw.githubusercontent.com/1950558292a/xinyue-heartbeat/main/heartbeat.json?t=' + Date.now();
+var MAX_WAIT = 15000;
+var start = Date.now();
+
+function showMaint() {
+  document.getElementById('spin').style.display = 'none';
+  document.getElementById('status').innerHTML =
+    '<div class="maint">服务器维护中</div>' +
+    '电脑端服务未运行或网络异常。<br>请让站长开启电脑上的服务后再试。';
+}
+function showErr(msg) {
+  document.getElementById('spin').style.display = 'none';
+  document.getElementById('status').innerHTML = '连接失败：' + msg;
+}
+
+function check() {
+  fetch(HEARTBEAT_URL, { cache: 'no-store' })
+    .then(function (r) { return r.ok ? r.json() : Promise.reject('心跳文件不可用'); })
+    .then(function (j) {
+      if (!j || !j.url) return Promise.reject('心跳数据无效');
+      if (!j.alive) { showMaint(); return; }
+      var age = Date.now() - (j.ts || 0);
+      if (age > 60000) { showMaint(); return; } /* 心跳超过60秒 = 服务器已关 */
+      location.replace(j.url + '/');
+    })
+    .catch(function (e) {
+      if (Date.now() - start < MAX_WAIT) setTimeout(check, 2000);
+      else showMaint();
+    });
+}
+setTimeout(function () { showMaint(); }, MAX_WAIT + 8000);
+check();
+</script>
+</body>
+</html>
