@@ -58,7 +58,7 @@ function check() {
       if (!j || !j.url) return Promise.reject('心跳数据无效');
       if (!j.alive) { showMaint(); return; }
       var age = Date.now() - (j.ts || 0);
-      if (age > 60000) { showMaint(); return; } /* 心跳超过60秒 = 服务器已关 */
+      if (age > 120000) { showMaint(); return; } /* 心跳超过2分钟 = 服务器已关 */
       location.replace(j.url + '/');
     })
     .catch(function (e) {
