@@ -35,8 +35,8 @@
   <div class="tip">如果长时间无反应，请检查电脑端是否已启动服务，或稍后重试。</div>
 </div>
 <script>
-/* 固定跳转页：从 GitHub raw 读取服务器心跳（最新隧道地址） */
-var HEARTBEAT_URL = 'https://raw.githubusercontent.com/1950558292a/xinyue-heartbeat/main/heartbeat.json?t=' + Date.now();
+/* 固定跳转页：从 GitHub API 实时读取心跳（raw CDN 缓存延迟太大，改用 API） */
+var HEARTBEAT_URL = 'https://api.github.com/repos/1950558292a/xinyue-heartbeat/contents/heartbeat.json?t=' + Date.now();
 var MAX_WAIT = 15000;
 var start = Date.now();
 
@@ -51,10 +51,24 @@ function showErr(msg) {
   document.getElementById('status').innerHTML = '连接失败：' + msg;
 }
 
+function decodeApiResp(j) {
+  /* GitHub API 返回 { content: "base64..." } */
+  if (j && j.content) {
+    try {
+      var bin = atob(j.content.replace(/\n/g, ''));
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return JSON.parse(new TextDecoder('utf-8').decode(bytes));
+    } catch (e) { return null; }
+  }
+  return j && (j.url || j.ts) ? j : null;
+}
+
 function check() {
   fetch(HEARTBEAT_URL, { cache: 'no-store' })
     .then(function (r) { return r.ok ? r.json() : Promise.reject('心跳文件不可用'); })
     .then(function (j) {
+      j = decodeApiResp(j);
       if (!j || !j.url) return Promise.reject('心跳数据无效');
       if (!j.alive) { showMaint(); return; }
       var age = Date.now() - (j.ts || 0);
