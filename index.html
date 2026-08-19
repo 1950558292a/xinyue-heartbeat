@@ -43,8 +43,8 @@ var start = Date.now();
 function showMaint() {
   document.getElementById('spin').style.display = 'none';
   document.getElementById('status').innerHTML =
-    '<div class="maint">服务器维护中</div>' +
-    '电脑端服务未运行或网络异常。<br>请让站长开启电脑上的服务后再试。';
+    '<div class="maint">暂时无法连接服务器</div>' +
+    '请检查电脑端「心悦量化」服务是否已启动。<br>同一 WiFi 下可用 http://192.168.1.7:8080 访问。';
 }
 function showErr(msg) {
   document.getElementById('spin').style.display = 'none';
@@ -64,23 +64,31 @@ function decodeApiResp(j) {
   return j && (j.url || j.ts) ? j : null;
 }
 
+function goto(j) {
+  j = decodeApiResp(j);
+  if (!j || !j.url) return Promise.reject('心跳数据无效');
+  if (!j.alive) { showMaint(); return; }
+  var age = Date.now() - (j.ts || 0);
+  if (age > 180000) { showMaint(); return; } /* 心跳超过3分钟 = 服务器可能已关 */
+  location.replace(j.url + '/');
+}
+
 function check() {
   fetch(HEARTBEAT_URL, { cache: 'no-store' })
     .then(function (r) { return r.ok ? r.json() : Promise.reject('心跳文件不可用'); })
-    .then(function (j) {
-      j = decodeApiResp(j);
-      if (!j || !j.url) return Promise.reject('心跳数据无效');
-      if (!j.alive) { showMaint(); return; }
-      var age = Date.now() - (j.ts || 0);
-      if (age > 120000) { showMaint(); return; } /* 心跳超过2分钟 = 服务器已关 */
-      location.replace(j.url + '/');
-    })
-    .catch(function (e) {
-      if (Date.now() - start < MAX_WAIT) setTimeout(check, 2000);
-      else showMaint();
+    .then(goto)
+    .catch(function () {
+      /* API 不通: 试 raw CDN(国内访问 raw 有时更顺) */
+      return fetch('https://raw.githubusercontent.com/1950558292a/xinyue-heartbeat/main/heartbeat.json?t=' + Date.now(), { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject('raw不可用'); })
+        .then(goto)
+        .catch(function () {
+          if (Date.now() - start < MAX_WAIT) setTimeout(check, 3000);
+          else showMaint();
+        });
     });
 }
-setTimeout(function () { showMaint(); }, MAX_WAIT + 8000);
+setTimeout(function () { showMaint(); }, MAX_WAIT + 10000);
 check();
 </script>
 </body>
