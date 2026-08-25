@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>心悦量化平台 1.2 · 正在连接…</title>
+<title>心悦量化平台 · 正在连接…</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -13,8 +13,7 @@
     text-align: center; padding: 20px;
   }
   .box { max-width: 420px; }
-  .logo { margin-bottom: 12px; }
-  .logo img { width: 84px; height: 84px; border-radius: 20px; }
+  .logo { font-size: 52px; margin-bottom: 12px; }
   h1 { font-size: 20px; margin-bottom: 8px; }
   .status { color: #8b98a9; font-size: 13px; min-height: 20px; margin-top: 10px; }
   .spinner {
@@ -29,31 +28,30 @@
 </head>
 <body>
 <div class="box">
-  <div class="logo"><img src="./icon-192.png" alt="心悦量化"></div>
-  <h1>心悦量化平台 1.2</h1>
+  <div class="logo">◈</div>
+  <h1>心悦量化平台</h1>
   <div class="spinner" id="spin"></div>
   <div class="status" id="status">正在连接服务器…</div>
-  <div class="tip">如果长时间无反应，请检查电脑端是否已启动服务，或稍后重试。</div>
+  <div class="tip">如果长时间无反应，请检查服务器电脑是否已开机并运行服务，或稍后重试。<br>同一 WiFi 下可直接访问 http://192.168.1.7:8080</div>
 </div>
 <script>
-/* 固定跳转页：从 GitHub API 实时读取心跳（raw CDN 缓存延迟太大，改用 API） */
-var HEARTBEAT_URL = 'https://api.github.com/repos/1950558292a/xinyue-heartbeat/contents/heartbeat.json?t=' + Date.now();
-var MAX_WAIT = 15000;
-var start = Date.now();
+/* 固定跳转页 v2: 多数据源(jsdelivr→GitHub API→raw) + 跳转前存活验证 + 永不放弃重试 */
+var OWNER = '1950558292a';
+var SOURCES = [
+  'https://cdn.jsdelivr.net/gh/' + OWNER + '/xinyue-heartbeat@main/heartbeat.json?t=',
+  'https://api.github.com/repos/' + OWNER + '/xinyue-heartbeat/contents/heartbeat.json?t=',
+  'https://raw.githubusercontent.com/' + OWNER + '/xinyue-heartbeat/main/heartbeat.json?t=',
+];
+var tries = 0, lastUrl = '';
 
-function showMaint() {
+function showMaint(msg) {
   document.getElementById('spin').style.display = 'none';
   document.getElementById('status').innerHTML =
-    '<div class="maint">暂时无法连接服务器</div>' +
-    '请检查电脑端「心悦量化」服务是否已启动。<br>同一 WiFi 下可用 http://192.168.1.7:8080 访问。';
-}
-function showErr(msg) {
-  document.getElementById('spin').style.display = 'none';
-  document.getElementById('status').innerHTML = '连接失败：' + msg;
+    '<div class="maint">暂时无法连接服务器</div>' + (msg || '') +
+    '<div style="font-size:12px;color:#8b98a9;margin-top:8px">仍在自动重试，请保持此页面打开…</div>';
 }
 
 function decodeApiResp(j) {
-  /* GitHub API 返回 { content: "base64..." } */
   if (j && j.content) {
     try {
       var bin = atob(j.content.replace(/\n/g, ''));
@@ -65,31 +63,41 @@ function decodeApiResp(j) {
   return j && (j.url || j.ts) ? j : null;
 }
 
-function goto(j) {
-  j = decodeApiResp(j);
-  if (!j || !j.url) return Promise.reject('心跳数据无效');
-  if (!j.alive) { showMaint(); return; }
-  var age = Date.now() - (j.ts || 0);
-  if (age > 180000) { showMaint(); return; } /* 心跳超过3分钟 = 服务器可能已关 */
-  location.replace(j.url + '/');
+/* 拿到地址后先验证服务器真活着, 再跳转(避免跳到已失效的旧隧道) */
+function probeAndGo(j) {
+  var hb = decodeApiResp(j);
+  if (!hb || !hb.url) return Promise.reject('心跳数据无效');
+  if (!hb.alive) { showMaint('服务器已关机或服务未启动。'); return Promise.reject('not alive'); }
+  var age = Date.now() - (hb.ts || 0);
+  if (age > 240000) { showMaint('心跳已过期(服务器可能已关机)。'); return Promise.reject('stale'); }
+  if (hb.url === lastUrl) { /* 地址没变过且验证过, 直接进 */ location.replace(hb.url + '/'); return Promise.resolve(); }
+  return fetch(hb.url + '/api/info', { cache: 'no-store' })
+    .then(function (r) {
+      if (!r.ok) return Promise.reject('服务器无响应');
+      return r.json();
+    })
+    .then(function (info) {
+      if (!info || !info.ok) return Promise.reject('服务器无响应');
+      lastUrl = hb.url;
+      location.replace(hb.url + '/');
+    });
 }
 
 function check() {
-  fetch(HEARTBEAT_URL, { cache: 'no-store' })
-    .then(function (r) { return r.ok ? r.json() : Promise.reject('心跳文件不可用'); })
-    .then(goto)
-    .catch(function () {
-      /* API 不通: 试 raw CDN(国内访问 raw 有时更顺) */
-      return fetch('https://raw.githubusercontent.com/1950558292a/xinyue-heartbeat/main/heartbeat.json?t=' + Date.now(), { cache: 'no-store' })
-        .then(function (r) { return r.ok ? r.json() : Promise.reject('raw不可用'); })
-        .then(goto)
-        .catch(function () {
-          if (Date.now() - start < MAX_WAIT) setTimeout(check, 3000);
-          else showMaint();
-        });
+  tries++;
+  var st = document.getElementById('status');
+  if (tries > 1) st.textContent = '正在连接服务器…(第 ' + tries + ' 次尝试)';
+  var src = SOURCES[(tries - 1) % SOURCES.length] + Date.now();
+  fetch(src, { cache: 'no-store' })
+    .then(function (r) { return r.ok ? r.json() : Promise.reject('数据源不可用'); })
+    .then(probeAndGo)
+    .catch(function (e) {
+      /* 30秒内快速重试, 之后每10秒一次(永不放弃) */
+      var wait = Date.now() - window.__t0 < 30000 ? 3000 : 10000;
+      setTimeout(check, wait);
     });
 }
-setTimeout(function () { showMaint(); }, MAX_WAIT + 10000);
+window.__t0 = Date.now();
 check();
 </script>
 </body>
